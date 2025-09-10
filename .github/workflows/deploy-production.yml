@@ -1,0 +1,147 @@
+name: Deploy n8n to Production
+
+on:
+  push:
+    branches:
+      - production
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deployment even if no changes'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  NODE_OPTIONS: '--max-old-space-size=6144'
+  N8N_VERSION: ${{ github.sha }}
+
+jobs:
+  deploy:
+    name: Deploy n8n to Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: production
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'pnpm'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build application
+        run: pnpm build:n8n
+
+      - name: Build Docker image
+        run: |
+          echo "🐳 Building Docker image for production deployment"
+          docker build -t n8n-self-deploy:production \
+            -f docker/images/n8n/Dockerfile \
+            --build-arg NODE_VERSION=22 \
+            --build-arg N8N_VERSION=${{ env.N8N_VERSION }} \
+            --build-arg N8N_RELEASE_TYPE=production \
+            .
+          
+          # Also tag as latest for production
+          docker tag n8n-self-deploy:production n8n-self-deploy:latest
+
+      - name: Deploy to Production
+        run: |
+          echo "🚀 Deploying n8n to Production Environment"
+          echo "Version: ${{ env.N8N_VERSION }}"
+          echo "Docker image: n8n-self-deploy:production"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          
+          # Create production docker-compose file
+          cat > docker-compose.production.yml << 'DOCKER_COMPOSE_EOF'
+          version: '3.8'
+          services:
+            n8n:
+              image: n8n-self-deploy:production
+              container_name: n8n-production
+              restart: unless-stopped
+              ports:
+                - "5678:5678"
+              environment:
+                - N8N_BASIC_AUTH_ACTIVE=true
+                - N8N_BASIC_AUTH_USER=admin
+                - N8N_BASIC_AUTH_PASSWORD=changeme
+                - N8N_HOST=localhost
+                - N8N_PORT=5678
+                - N8N_PROTOCOL=http
+                - WEBHOOK_URL=http://localhost:5678/
+                - GENERIC_TIMEZONE=UTC
+              volumes:
+                - n8n_data:/home/node/.n8n
+              networks:
+                - n8n-network
+              
+            postgres:
+              image: postgres:16
+              container_name: n8n-postgres-production
+              restart: unless-stopped
+              environment:
+                - POSTGRES_DB=n8n
+                - POSTGRES_USER=n8n
+                - POSTGRES_PASSWORD=n8n_password
+              volumes:
+                - postgres_data:/var/lib/postgresql/data
+              networks:
+                - n8n-network
+              ports:
+                - "5432:5432"
+
+          volumes:
+            n8n_data:
+            postgres_data:
+
+          networks:
+            n8n-network:
+              driver: bridge
+          DOCKER_COMPOSE_EOF
+          
+          echo "📋 Production docker-compose.yml created"
+          echo "🔧 To deploy manually, run:"
+          echo "   docker-compose -f docker-compose.production.yml up -d"
+          echo ""
+          echo "🌐 n8n will be available at: http://localhost:5678"
+          echo "👤 Default credentials: admin / changeme"
+          echo "🗄️  Database: PostgreSQL on localhost:5432"
+
+      - name: Health Check
+        run: |
+          echo "✅ Production deployment configuration ready!"
+          echo "📊 Deployment Summary:"
+          echo "   - Image: n8n-self-deploy:production"
+          echo "   - Version: ${{ env.N8N_VERSION }}"
+          echo "   - Commit: ${{ github.sha }}"
+          echo "   - Timestamp: $(date -u)"
+          echo ""
+          echo "🔍 Next steps:"
+          echo "   1. Review the docker-compose.production.yml file"
+          echo "   2. Update environment variables as needed"
+          echo "   3. Run: docker-compose -f docker-compose.production.yml up -d"
+          echo "   4. Access n8n at http://localhost:5678"
+
+      - name: Upload deployment artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-deployment-${{ env.N8N_VERSION }}
+          path: |
+            docker-compose.production.yml
+          retention-days: 30
