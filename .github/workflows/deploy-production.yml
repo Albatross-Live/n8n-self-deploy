@@ -88,8 +88,8 @@ jobs:
             cd /home/${{ secrets.AWS_SERVER_USER }}/n8n-deployment
             
             # Stop existing containers
-            echo "🛑 Stopping existing containers"
-            docker-compose down || true
+            echo "🛑 Stopping existing production containers"
+            docker-compose -f docker-compose.production.yml down || true
             
             # Remove old images to free space
             echo "🧹 Cleaning up old Docker images"
@@ -100,8 +100,8 @@ jobs:
             docker pull ${{ secrets.DOCKER_USERNAME }}/n8n-self-deploy:production
             
             # Create production docker-compose file
-            echo "📝 Creating production docker-compose.yml"
-            cat > docker-compose.yml << 'DOCKER_COMPOSE_EOF'
+            echo "📝 Creating production docker-compose.production.yml"
+            cat > docker-compose.production.yml << 'DOCKER_COMPOSE_EOF'
             version: '3.8'
             services:
               n8n:
@@ -109,7 +109,7 @@ jobs:
                 container_name: n8n-production
                 restart: unless-stopped
                 ports:
-                  - "5678:5678"
+                  - "5679:5678"  # Changed to port 5679 to avoid conflict
                 environment:
                   - N8N_BASIC_AUTH_ACTIVE=true
                   - N8N_BASIC_AUTH_USER=admin
@@ -117,18 +117,18 @@ jobs:
                   - N8N_HOST=0.0.0.0
                   - N8N_PORT=5678
                   - N8N_PROTOCOL=http
-                  - WEBHOOK_URL=http://${{ secrets.AWS_SERVER_HOST }}:5678/
+                  - WEBHOOK_URL=http://${{ secrets.AWS_SERVER_HOST }}:5679/  # Updated URL
                   - GENERIC_TIMEZONE=UTC
                   - DB_TYPE=postgresdb
                   - DB_POSTGRESDB_HOST=postgres
                   - DB_POSTGRESDB_PORT=5432
-                  - DB_POSTGRESDB_DATABASE=n8n
-                  - DB_POSTGRESDB_USER=n8n
-                  - DB_POSTGRESDB_PASSWORD=n8n_password
+                  - DB_POSTGRESDB_DATABASE=n8n_production  # Unique database name
+                  - DB_POSTGRESDB_USER=n8n_production
+                  - DB_POSTGRESDB_PASSWORD=n8n_production_password
                 volumes:
-                  - n8n_data:/home/node/.n8n
+                  - n8n_production_data:/home/node/.n8n  # Unique volume name
                 networks:
-                  - n8n-network
+                  - n8n_production_network  # Unique network name
                 depends_on:
                   - postgres
                 
@@ -137,28 +137,28 @@ jobs:
                 container_name: n8n-postgres-production
                 restart: unless-stopped
                 environment:
-                  - POSTGRES_DB=n8n
-                  - POSTGRES_USER=n8n
-                  - POSTGRES_PASSWORD=n8n_password
+                  - POSTGRES_DB=n8n_production  # Unique database name
+                  - POSTGRES_USER=n8n_production
+                  - POSTGRES_PASSWORD=n8n_production_password
                 volumes:
-                  - postgres_data:/var/lib/postgresql/data
+                  - postgres_production_data:/var/lib/postgresql/data  # Unique volume name
                 networks:
-                  - n8n-network
+                  - n8n_production_network  # Unique network name
                 ports:
-                  - "5432:5432"
+                  - "5433:5432"  # Changed to port 5433 to avoid conflict
 
             volumes:
-              n8n_data:
-              postgres_data:
+              n8n_production_data:  # Unique volume name
+              postgres_production_data:  # Unique volume name
 
             networks:
-              n8n-network:
+              n8n_production_network:  # Unique network name
                 driver: bridge
             DOCKER_COMPOSE_EOF
             
-            # Start the services
-            echo "🚀 Starting n8n services"
-            docker-compose up -d
+            # Start the services using the production compose file
+            echo "🚀 Starting n8n production services"
+            docker-compose -f docker-compose.production.yml up -d
             
             # Wait for services to be ready
             echo "⏳ Waiting for services to start..."
@@ -169,11 +169,11 @@ jobs:
             docker-compose ps
             
             # Test n8n health
-            echo " Testing n8n health"
-            curl -f http://localhost:5678/healthz || echo "Health check failed, but continuing..."
+            echo "🏥 Testing n8n production health"
+            curl -f http://localhost:5679/healthz || echo "Health check failed, but continuing..."
             
-            echo "✅ Deployment completed successfully!"
-            echo "🌐 n8n is available at: http://${{ secrets.AWS_SERVER_HOST }}:5678"
+            echo "✅ Production deployment completed successfully!"
+            echo "🌐 n8n production is available at: http://${{ secrets.AWS_SERVER_HOST }}:5679"
             echo "👤 Default credentials: admin / changeme"
 
       - name: Health Check
@@ -190,6 +190,64 @@ jobs:
           echo "   - URL: http://${{ secrets.AWS_SERVER_HOST }}:5678"
           echo "   - Username: admin"
           echo "   - Password: changeme"
+
+      - name: Create local docker-compose reference
+        run: |
+          echo "📝 Creating local docker-compose reference file"
+          cat > docker-compose.production.yml << 'DOCKER_COMPOSE_EOF'
+          version: '3.8'
+          services:
+            n8n:
+              image: ${{ secrets.DOCKER_USERNAME }}/n8n-self-deploy:production
+              container_name: n8n-production
+              restart: unless-stopped
+              ports:
+                - "5678:5678"
+              environment:
+                - N8N_BASIC_AUTH_ACTIVE=true
+                - N8N_BASIC_AUTH_USER=admin
+                - N8N_BASIC_AUTH_PASSWORD=changeme
+                - N8N_HOST=0.0.0.0
+                - N8N_PORT=5678
+                - N8N_PROTOCOL=http
+                - WEBHOOK_URL=http://${{ secrets.AWS_SERVER_HOST }}:5678/
+                - GENERIC_TIMEZONE=UTC
+                - DB_TYPE=postgresdb
+                - DB_POSTGRESDB_HOST=postgres
+                - DB_POSTGRESDB_PORT=5432
+                - DB_POSTGRESDB_DATABASE=n8n
+                - DB_POSTGRESDB_USER=n8n
+                - DB_POSTGRESDB_PASSWORD=n8n_password
+              volumes:
+                - n8n_data:/home/node/.n8n
+              networks:
+                - n8n-network
+              depends_on:
+                - postgres
+              
+            postgres:
+              image: postgres:16
+              container_name: n8n-postgres-production
+              restart: unless-stopped
+              environment:
+                - POSTGRES_DB=n8n
+                - POSTGRES_USER=n8n
+                - POSTGRES_PASSWORD=n8n_password
+              volumes:
+                - postgres_data:/var/lib/postgresql/data
+              networks:
+                - n8n-network
+              ports:
+                - "5432:5432"
+
+          volumes:
+            n8n_data:
+            postgres_data:
+
+          networks:
+            n8n-network:
+              driver: bridge
+          DOCKER_COMPOSE_EOF
 
       - name: Upload deployment artifacts
         uses: actions/upload-artifact@v4
