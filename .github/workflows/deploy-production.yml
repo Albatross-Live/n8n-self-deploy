@@ -113,7 +113,7 @@ jobs:
                 environment:
                   - N8N_BASIC_AUTH_ACTIVE=true
                   - N8N_BASIC_AUTH_USER=admin
-                  - N8N_BASIC_AUTH_PASSWORD=changeme
+                  - N8N_BASIC_AUTH_PASSWORD=${{ secrets.N8N_ADMIN_PASSWORD || 'N8n_Pr0d_2024!@#Secure' }}
                   - N8N_HOST=0.0.0.0
                   - N8N_PORT=5678
                   - N8N_PROTOCOL=http
@@ -124,7 +124,7 @@ jobs:
                   - DB_POSTGRESDB_PORT=5432
                   - DB_POSTGRESDB_DATABASE=n8n_production  # Unique database name
                   - DB_POSTGRESDB_USER=n8n_production
-                  - DB_POSTGRESDB_PASSWORD=n8n_production_password
+                  - DB_POSTGRESDB_PASSWORD=${{ secrets.POSTGRES_PASSWORD || 'Pg_Pr0d_2024!@#Secure' }}
                 volumes:
                   - n8n_production_data:/home/node/.n8n  # Unique volume name
                 networks:
@@ -139,7 +139,7 @@ jobs:
                 environment:
                   - POSTGRES_DB=n8n_production  # Unique database name
                   - POSTGRES_USER=n8n_production
-                  - POSTGRES_PASSWORD=n8n_production_password
+                  - POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD || 'Pg_Pr0d_2024!@#Secure' }}
                 volumes:
                   - postgres_production_data:/var/lib/postgresql/data  # Unique volume name
                 networks:
